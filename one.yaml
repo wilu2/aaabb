@@ -1,0 +1,376 @@
+openapi: 3.0.3
+info:
+  version: 1.0.0
+  title: Textin Document Robot
+  description: 文档解析机器人
+  contact:                                    # 所开放的 API 的联系人信息
+    name: Ping Liang                          # 人或组织的名称
+    email: ping_liang@intsig.net
+servers:
+  - url: https://ocr-api.ccint.com
+    description: 线上环境
+  - url: https://ocr-api-sandbox.ccint.com
+    description: 测试环境
+  - url: https://temp-contract-ie-demo.ai.intsig.net
+    description: 临时环境
+  - url: http://127.0.0.1:30006
+    description: 本地环境
+tags:
+  - name: "ocr"
+    description: "Everything about the Character in your upload document."
+paths:
+  /ai/service/v1/doc_robot_ocr:
+    post:
+      tags:
+        - "ocr"
+      summary: 上传一个文件（pdf、word、image），返回其识别结果。
+      description: post方式请求，文件二进制流走stream、其余参数以query形式传递
+      operationId: doc_robot_ocr
+      parameters:
+        - name: file_name
+          required: true
+          in: query
+          description: 文件名
+          schema:
+            type: string
+        - name: engine
+          in: query
+          required: true
+          description: |
+            - recognize: 全文识别，不返回表格、版面信息。
+            - table: 表格识别，返回表格结构信息，不返回版面信息。
+            - document: 版面识别，返回段落、印章、表格、edge等版面信息。
+          schema:
+            type: string
+            enum:
+              - recognize
+              - table
+              - document
+            default: recognize
+        - name: use_pdf_parser
+          in: query
+          description: |
+            - 是否使用pdf解析器解析pdf电子文档
+            - 默认开启
+          schema:
+            type: boolean
+            default: true
+        - name: merge_same_row
+          in: query
+          description: |
+            - 是否基于垂直重叠性合并同行的不同line
+            - 默认关闭
+          schema:
+            type: boolean
+            default: false
+        - name: image_scale
+          in: query
+          description: |
+            - 文档各页面转换为图片时需要缩放的倍数
+            - 适用于doc、docx、pdf文档
+          schema:
+            type: number
+            default: 1.0
+        - name: return_image
+          in: query
+          description: |
+            - 是否返回文档各页图片的base64字符流
+            - 默认关闭
+          schema:
+            type: boolean
+            default: false
+        - name: rotate_image
+          in: query
+          description: |
+            - 是否将旋转的图片/页面正置，仅当`return_image=true`时有效
+            - 默认开启
+          schema:
+            type: boolean
+            default: true
+        - name: recognize_edge
+          in: query
+          description: |
+            - 是否识别输入文档各页面的edge（页眉/页脚/页码）
+            - 当`engine=document`时，调用版面还原引擎，此参数无效
+            - 默认开启
+          schema:
+            type: boolean
+            default: true
+        - name: remove_annot
+          in: query
+          description: |
+            - 是否忽略word、电子型pdf文档中的批注
+            - 默认开启
+          schema:
+            type: boolean
+            default: true
+        - name: remove_edge
+          in: query
+          description: |
+            - 是否在word转pdf时忽略word文档中的页眉和页脚（edge）
+            - word文档具有显式的页眉页脚标记，不会误删正文文字，默认开启
+            - 未调用版面引擎，且`recognize_edge=true`时，通过逻辑判断edge
+            - 调用版面引擎，通过算法识别edge
+          schema:
+            type: boolean
+            default: true
+        - name: remove_footnote
+          in: query
+          description: |
+            - 是否在word转pdf时忽略word文档中的脚注
+            - 默认开启
+          schema:
+            type: boolean
+            default: true
+        - name: remove_watermark
+          in: query
+          description: |
+            - 是否在识别word、电子型pdf文档时，忽略文档中的水印
+            - aspose支持去除word文档，pdf文档暂不支持
+            - 调用版面引擎时，`area_type=watermark`的line为水印
+            - 默认开启
+          schema:
+            type: boolean
+            default: true
+        - name: remove_stamp
+          in: query
+          description: |
+            - 是否抹除图片中的印章区域
+            - 缺省，目前无效
+          schema:
+            type: boolean
+            default: false
+      requestBody:
+        description: 文件（pdf、word、image）
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../Common/CodeMessage/1.0.0.openapi.yaml#/components/schemas/CodeMessage'
+                  - $ref: '#/components/schemas/return_of_document'
+components:
+  schemas:
+    return_of_document:
+      type: object
+      properties:
+        version:
+          type: string
+          description: 接口版本号
+          example: v1.0.0
+        duration:
+          type: number
+          format: float
+          description: 提取信息耗时，以ms为单位
+          example: 101.05
+        result:
+          type: object
+          description: 文档识别结果
+          properties:
+            size:
+              type: integer
+              description: 传入文件的大小，单位为kb
+              example: 1156
+            pages:
+              type: array
+              items:
+                type: object
+                required:
+                  - index
+                  - angle
+                  - original_angle
+                  - width
+                  - height
+                  - lines
+                  - areas
+                  - tables
+                  - image_bytes
+                  - image_scale
+                  - image_type
+                properties:
+                  index:
+                    type: integer
+                    description: |
+                      传入文档的第几页（从0开始）
+                    example: 0
+                  angle:
+                    type: integer
+                    description: |
+                      - 接口输出文档的角度
+                      - 定义人类阅读文字的方向为文档正向放置，用零度表示
+                      - 该字段表示对正置文档进行了顺时针若干角度的旋转
+                    enum: [0, 90, 180, 270]
+                    example: 0
+                  original_angle:
+                    type: integer
+                    description: |
+                      - 接口输入文档的角度，用于记录文档最原始的旋转角度
+                      - 因为当输入`rotate_image=true`时，会将image正置，并令`angle=0`
+                    enum: [0, 90, 180, 270]
+                    example: 270
+                  width:
+                    type: integer
+                    description: 文档页面/图片的宽度
+                    example: 595
+                  height:
+                    type: integer
+                    description: 文档页面/图片的高度
+                    example: 842
+                  lines:
+                    $ref: '#/components/schemas/lines'
+                  areas:
+                    $ref: '#/components/schemas/areas'
+                  tables:
+                    $ref: '#/components/schemas/tables'
+                  image_bytes:
+                    type: string
+                    description: 返回图片的base64字符流
+                    example: iVBORw0KGgoAAAANSUhEUgAAA0oAAAJUCAIAAACkEIWXMAAA7EAAAOxAGVKw4bAAByT0lEQVR4nOzdeTxV6
+                  image_scale:
+                    type: number
+                    format: float
+                    description: 返回图片的缩放比例
+                    example: 2.0
+                  image_type:
+                    type: string
+                    description: 返回图片的格式
+                    example: jpeg
+    lines:
+      type: array
+      description: 以文本行为单位的识别结果
+      items:
+        type: object
+        required:
+          - area_type
+          - area_index
+          - char_positions
+          - text
+          - score
+          - type
+          - position
+          - angle
+          - direction
+          - handwritten
+        properties:
+          char_positions:
+            type: array
+            description: 字符四边形点坐标，以顺时针构成闭合区域。
+            items:
+              type: array
+              items:
+                type: integer
+                example: 0
+              minItems: 8
+              maxItems: 8
+            example: [[0, 0, 16, 0, 16, 16, 0, 16]]
+          area_index:
+            type: integer
+            description: (optional) 区域编号，属于同一个段落就会共享一个编号，当设置`apply_layout=1`时输出。
+            example: 10
+          area_type:
+            type: string
+            description: (optional) 区域类型， 当设置`apply_layout=1`时输出。
+            example: paragraph
+        allOf:
+          - $ref: '../GenericOCREngine/ref.lines.yaml#/items'
+    areas:
+      type: array
+      description: (optional) 区域数组。当设置`apply_layout=1`且模型支持时输出。
+      items:
+        type: object
+        required:
+          - index
+          - score
+          - type
+          - position
+          - bytes
+        properties:
+          bytes:
+            type: string
+            description: 图片的二进制流，当`type=image`时，有此值。
+            example: iVBORw0KGgoAAAANSUhEUgAAA0oAAAJ
+        allOf:
+          - $ref: '../GenericOCREngine/ref.areas.yaml#/items'
+    # schema of filed "tables"
+    tables:
+      type: array
+      description: (optional) 表格数组，数组元素数量等于页面中的表格数，当设置`apply_table=1`且模型支持时输出。
+      items:
+        required:
+          - area_index
+          - position
+          - table_type
+          - table_rows
+          - table_cols
+          - table_cells
+        type: object
+        properties:
+          area_index:
+            type: integer
+            description: |
+              (optional) 区域编号。
+            example: 0
+          table_type:
+            type: string
+            description: |
+              表格类型
+              - plain (文本区域而非表格区域): 仅返回文本行信息即字段"lines"
+              - table_with_line (有线表格): 仅返回单元格信息即字段"table_cells"
+              - table_without_line (无线表格): 仅返回单元格信息即字段"table_cells"
+            example: table_with_line
+          position:
+            type: array
+            description: 表格的位置信息， 以长度为8的整形数组表示四边形，  语义左上角为起始点顺时针构成闭合区域。
+            minItems: 8
+            maxItems: 8
+            items:
+              type: integer
+              example: 0
+            example: [0, 0, 500, 0, 500, 300, 0, 300]
+          table_rows:
+            type: integer
+            description: 表格行数
+            example: 10
+          table_cols:
+            type: integer
+            description: 表格列数
+            example: 20
+          table_cells:
+            description: 单元格数组，当前区域类型为有线表格或者无线表格时返回本字段。
+            type: array
+            items:
+              type: object
+              properties:
+                location:
+                  description: 单元格的所在行列位置, 4个位置依次表示单元格的起始行、终止行、起始列和终止列。
+                  type: array
+                  items:
+                    type: integer
+                    example: 0
+                  minItems: 4
+                  maxItems: 4
+                  example: [0, 0, 1, 1]
+                position:
+                  type: array
+                  description: 单元格的位置信息，以长度为8的整形数组表示四边形，语义左上角为起始点顺时针构成闭合区域。
+                  minItems: 8
+                  maxItems: 8
+                  items:
+                    type: integer
+                    example: 0
+                  example: [0, 100, 200, 100, 200, 300, 0, 300]
+                line_indices:
+                  type: array
+                  description: 单元格包含的文本行在lines中的索引，同一个cell可能包含多行文本。
+                  items:
+                    type: integer
+                    example: 0
+                  example: [0, 1, 2]
+
