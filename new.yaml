@@ -1,0 +1,599 @@
+openapi: 3.0.1
+info:
+  title: doc-parser
+  description: "电子文档(pdf,doc等)解析服务"
+  version: 1.0.0
+  contact: # 所开放的 API 的联系人信息
+    name: Jesse Li # 人或组织的名称
+    email: jesse_li@intsig.net # 人或组织的 email 地址
+servers:
+  - url: http://192.168.60.131:8421
+    description: 开发机测试服务地址
+  - url: https://temp-jdocparser.ai.intsig.net/
+    description: 临时发布服务地址
+tags:
+  - name: 电子文档解析服务
+
+paths:
+  /ai/service/v1/doc_parse:
+    post:
+      tags:
+        - 电子文档解析服务
+      description: 电子文档(pdf,doc等)进行解析输出结构化json数据
+      operationId: doc_parse
+      parameters:
+        - in: query
+          required: false
+          name: parse_level
+          description: |
+            解析级别，
+            * parse_level = 0 返回ocr-like结构
+            * parse_level = 1 返回structured结构，默认。
+            * parse_level = 2 返回readable text 结构, 该参数 仅对docx格式word 起作用，该参数有效时，其他参数都不起作用。
+          schema:
+            type: integer
+            default: 0
+        - in: query
+          required: false
+          name: return_image
+          description: |
+            当输入电子文档(doc,pdf等）时，是否返回页图像，
+            * return_image = 0 不返回图像
+            * return_image = 1 返回图像
+          schema:
+            type: integer
+            default: 0
+        - in: query
+          required: false
+          name: force_ai_layout
+          description: |
+            在输入电子文档(word,pdf)时，是否转成图片调用版面元素检测引擎接口来检测版面元素
+            * force_ai_layout=1 使用面元素检测引擎接口来检测版面元素，支持段落，表格无线表格，印章等.
+            * force_ai_layout=0 (默认)不调用版面元素检测引擎接口，使用代码检测（仅支持段落，有线表格，图片）
+          schema:
+            type: integer
+            default: 0
+        - in: query
+          required: false
+          name: dpi
+          description: |
+            当输入电子文档(doc,pdf等）时，文档页图像及文字坐标对应的DPI值。一般文档内存储的数值为72dpi，当设置120dpi时，坐标放大1.667倍。
+          schema:
+            type: integer
+            default: 120
+        - in: query
+          required: false
+          name: password
+          description: |
+            文档密码，当输入加密的电子文档(doc,pdf等)时需要。
+          schema:
+            type: string
+        - in: query
+          required: false
+          name: page_range
+          description: 文档页范围, 如‘0,3-5’ 表示 第0,3,4,5页。默认为全部页面。
+          schema:
+            type: string
+        - in: query
+          required: false
+          name: char_detail
+          description: |
+            解析级别，
+            * char_detail = 0 只返回每行字符，不返回字符的坐标和score
+            * char_detail = 1 返回每个字符的坐标和score
+            * char_detail = 2 返回每个字符的坐标和score，及(OCR)候选字符和候选字符score
+          schema:
+            type: integer
+            default: 0
+        - in: query
+          required: false
+          name: output_word
+          description: |
+            * output_word = 0 默认，不做word输出。
+            * output_word = 1 输出word文档，（当输入为图片， pdf时，开启该参数，可将结构化数据输出为word文档。需要配置document2word服务api。
+          schema:
+            type: integer
+            default: 0
+        - in: query
+          required: false
+          name: force_ocr
+          description: |
+            暂未支持 当输入电子文档(doc,pdf等）时，默认解析文档里面的文字信息，当开启该选项（force_ocr=1)时，将生成页图像，然后做ocr获得文字信息。
+          schema:
+            type: integer
+            default: 0
+      requestBody:
+        description: post body or Multi-PART格式
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              description: 电子文档二进制数据
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                document:
+                  type: string
+                  format: binary
+                  description: 电子文档二进制数据
+
+      responses:
+        "200":
+          description: "json data"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/result"
+
+# componente defination
+components:
+  schemas:
+    result:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: integer
+          default: 200
+          description: 返回状态码
+          example: 200
+        message:
+          type: string
+          description: "错误信息,仅当code不为200时。"
+          example: "success"
+        result:
+          $ref: "#components/schemas/document"
+
+    textline:
+      type: object
+      description: 文本行数据
+      required:
+        - "id"
+        - "type"
+        - "pos"
+        - "text"
+      properties:
+        id:
+          type: integer
+          description: 数据id(页内唯一)
+        type:
+          type: string
+          description: 数据类型,line
+          enum: ['line','image']
+          example: line
+        text:
+          type: string
+          description: 文本行文字内容，当sub_type=stamp时，text为印章上的文字。
+        pos:
+          type: array
+          description: 文本行四个角点坐标
+          maxItems: 8
+          minItems: 8
+          items:
+            type: integer
+        sub_type:
+          type: string
+          description: 子类型，当type为line时，如 handwriting，当type为image，如stmap
+        direction:
+          type: integer
+          description: '文字方向, 默认为0. 0:横向文本; 1:竖向文本; 2:横向右往左文本（如阿拉伯语)'
+        score:
+          type: number
+          description: 文本行内每个字符的置信度(仅当输入为图像做ocr时)
+          maximum: 1.0
+          minimum: 0.0
+        char_pos:
+          type: array
+          description: 文本行内每个字符的坐标
+          items:
+            type: array
+            maxItems: 8
+            minItems: 8
+            items:
+              type: integer
+        char_cand:
+          description: 候选字符列表
+          type: array
+          items:
+            type: array
+            maxItems: 5
+            items:
+              type: string
+        char_cand_score:
+          description: 候选字符置信度列表
+          type: array
+          items:
+            type: array
+            maxItems: 5
+            items:
+              type: number
+              maximum: 1.0
+              minimum: 0.0
+    image:
+      type: object
+      description: 图像数据
+      required:
+        - "id"
+        - "type"
+        - "pos"
+        - "data"
+      properties:
+        id:
+          type: integer
+          description: 数据id(页内唯一)
+        type:
+          type: string
+          description: 数据类型,image
+          example: image
+        pos:
+          type: array
+          description: 图像四个角点坐标
+          maxItems: 8
+          minItems: 8
+          items:
+            type: integer
+        sub_type:
+          type: string
+          description: 子类型，如 stamp,background
+        size:
+          description: 图像大小[width, height]
+          type: array
+          maxItems: 2
+          minItems: 2
+          items:
+            type: integer
+        data:
+          type: object
+          description: 图像内容
+          $ref: "#components/schemas/imagedata"
+
+    imagedata:
+      type: object
+      description: 图像数据，下面3种方式之一
+      properties:
+        base64:
+          description: 图像文件(jpg,png)的base64字符串
+          type: string
+        region:
+          description: 图像在页图像中的区域(四边形4个点坐标)
+          type: array
+          maxItems: 8
+          minItems: 8
+          items:
+            type: integer
+        path:
+          description: 图像文件路径(如在zip包中的路径)
+          type: string
+
+    document:
+      type: object
+      description: 结构化数据,仅当code为200时。
+      required:
+        - "pages"
+        - "type"
+      properties:
+        type:
+          type: string
+          description: "文档类型: Pdf, Image, Doc, Docx"
+          example: "Pdf"
+        src_page_count:
+          type: integer
+          description: "当输入Pdf, Doc, Docx时，返回文档的总页数（并非pages的大小）"
+          example: "10"
+
+        docx:
+          type: object
+          description: 当开启output_word=1时，输出word文档，使用下面base64或path之一。
+          properties:
+            base64:
+              type: string
+              description: word文档的 base64字符串
+              example: 'base64 of docx'
+            path:
+              type: string
+              description: word文档在外部的路径（比如使用zip时，zip内文件路径）
+              example: '/path/of/word.docx'
+        pages:
+          type: array
+          description: 文档页数据
+          items:
+            type: object
+            description: 文档页数据
+            properties:
+              width:
+                type: integer
+                description: 文档页宽度
+              height:
+                type: integer
+                description: 文档页高度
+              angle:
+                type: integer
+                description: 图像(中文字）的角度（当输入为图像时，默认为0，可选值0,90,180,270.
+              num:
+                type: integer
+                description: 文档页码
+                minimum: 0
+              image:
+                description: 文档页图像数据
+                type: object
+                $ref: "#components/schemas/imagedata"
+
+              readable:
+                type: array
+                description: 只有文字的 段落表格数据
+                items:
+                  oneOf:
+                    - $ref: "#components/schemas/paragraph"
+                    - $ref: "#components/schemas/table_text"
+              content:
+                type: array
+                description: 基础数据：文字行，图像等
+                items:
+                  oneOf:
+                    - $ref: "#components/schemas/textline"
+                    - $ref: "#components/schemas/image"
+              structured:
+                type: array
+                description: 结构化数据
+                items:
+                  oneOf:
+                    - $ref: "#components/schemas/textblock"
+                    - $ref: "#components/schemas/table"
+                    - $ref: "#components/schemas/imageblock"
+                    - $ref: "#components/schemas/footer"
+                    - $ref: "#components/schemas/header"
+    textblock:
+      type: object
+      description: 段落块
+      required:
+        - "type"
+        - "pos"
+        - "content"
+      properties:
+        type:
+          description: 段落块类型，固定为 textblock
+          type: string
+          example: textblock
+        pos:
+          type: array
+          description: 文本行四个角点坐标
+          maxItems: 8
+          minItems: 8
+          items:
+            type: integer
+        content:
+          description: 段落块内文本行id数组
+          type: array
+          items:
+            type: integer
+          example: [0, 1, 2]
+        sub_type:
+          description: 段落块字类型，如title，list,formula等
+          type: string
+          enum:
+            - title
+            - list
+            - formula
+
+          example: title
+    imageblock:
+      type: object
+      description: 段落块
+      required:
+        - "type"
+        - "pos"
+        - "content"
+      properties:
+        type:
+          description: 图像块类型，值为 image
+          type: string
+          example: image
+        pos:
+          type: array
+          description: 文本行四个角点坐标
+          maxItems: 8
+          minItems: 8
+          items:
+            type: integer
+        zorder:
+          type: integer
+          description: z-order 默认为0;如-1表示居于底层。
+        content:
+          type: integer
+          description: 图像资源数据id
+    table:
+      type: object
+      description: 表格块
+      required:
+        - "type"
+        - "pos"
+        - "rows"
+        - "cols"
+        - "columns_width"
+        - "rows_height"
+        - "cells"
+      properties:
+        type:
+          description: 表格快类型，固定为 table
+          type: string
+          example: table
+        pos:
+          type: array
+          description: 文本行四个角点坐标
+          maxItems: 8
+          minItems: 8
+          items:
+            type: integer
+        rows:
+          type: integer
+          description: 表格行数
+        cols:
+          type: integer
+          description: 表格列数
+        columns_width:
+          type: array
+          description: 表格列宽度列表
+          items:
+            type: integer
+        rows_height:
+          type: array
+          description: 表格行高度列表
+          items:
+            type: integer
+        cells:
+          description: 段落块内文本行id数组
+          type: array
+          items:
+            type: object
+            description: 单元格数据
+            required:
+              - "row"
+              - "col"
+            properties:
+              row:
+                type: integer
+                description: 单元格行号
+              col:
+                type: integer
+                description: 单元格列号
+              row_span:
+                type: integer
+                description: 单元格行跨度,默认为1
+              col_span:
+                type: integer
+                description: 单元格列跨度,默认为1
+              content:
+                type: array
+                description: 单元格内容
+                items:
+                  oneOf:
+                    - $ref: "#components/schemas/textblock"
+                    - $ref: "#components/schemas/imageblock"
+    header:
+      type: object
+      description: 页眉
+      required:
+        - "type"
+        - "pos"
+        - "content"
+      properties:
+        type:
+          description: 页眉块类型，固定为 header
+          type: string
+          example: header
+        pos:
+          type: array
+          description: 文本行四个角点坐标
+          maxItems: 8
+          minItems: 8
+          items:
+            type: integer
+        content:
+            type: array
+            description: 单元格内容
+            items:
+              oneOf:
+                - $ref: "#components/schemas/textblock"
+                - $ref: "#components/schemas/imageblock"
+                - $ref: "#components/schemas/table"
+    footer:
+      type: object
+      description: 页脚
+      required:
+        - "type"
+        - "pos"
+        - "content"
+      properties:
+        type:
+          description: 页脚块类型，固定为 footer
+          type: string
+          example: footer
+        pos:
+          type: array
+          description: 文本行四个角点坐标
+          maxItems: 8
+          minItems: 8
+          items:
+            type: integer
+        content:
+            type: array
+            description: 单元格内容
+            items:
+              oneOf:
+                - $ref: "#components/schemas/textblock"
+                - $ref: "#components/schemas/imageblock"
+                - $ref: "#components/schemas/table"
+    # 阅读顺序排列的段落表格数据
+    readable:
+        type: array
+        description: 段落或表格内容
+        items:
+          oneOf:
+            - $ref: "#components/schemas/paragraph"
+            - $ref: "#components/schemas/table_text"
+    # 仅包含文字的段落
+    paragraph:
+      type: object
+      description: 段落文字
+      required:
+        - "type"
+        - "text"
+      properties:
+        type:
+          description: 类型
+          example: 'paragraph'
+        text:
+          description: 段落文字
+          type: string
+        sub_type:
+          description: 段落子类型， footer, header, 没有子类型，表示 word正文内容
+          type: string
+          example: 'footer'
+    # 表格-text数据
+    table_text:
+      type: object
+      description: 表格文字
+      required:
+        - "type"
+        - "rows"
+        - "cols"
+        - "cells"
+      properties:
+        type:
+          description: 类型
+          example: 'table'
+        rows:
+          description: 表格行数
+          type: integer
+        cols:
+          description: 表格列数
+          type: integer        
+        cells:
+          description: 单元格数组
+          type: array
+          items:
+            type: object
+            properties:
+              row:
+                description: 行id, 从0开始
+                type: integer
+              col:
+                description: 列id, 从0开始
+                type: integer
+              row_span:
+                description: 行跨度，默认为1时可省略
+                type: integer
+              col_span:
+                description: 列跨度，默认为1可省略
+                type: integer
+              content:
+                description: 单元格内容
+                type: array
+                items:
+                  oneOf:
+                    - $ref: "#components/schemas/paragraph"
+                    - $ref: "#components/schemas/table_text"
